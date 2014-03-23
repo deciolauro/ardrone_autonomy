@@ -1,0 +1,131 @@
+#!/usr/bin/env python
+
+'''
+Bidirectional multi-client-server multi-port UDP proxy
+Written by Mike Clement, March 2014
+
+Relays traffic on a specified set of ports (see DEFAULT_PORTS)
+between a set of clients by IP and corresponding servers by IP
+(see IP_MAPPING).
+
+The idea is to enable port-symmetric UDP communication between
+a number of client application instances, each of which bind
+their sockets to a specific (possibly loopback) IP address,
+and a set of remote servers, one server for each client instance.
+In reality, the clients and/or servers can be local or remote.
+
+To test this using a local (loopback) client using (arbitrarily-
+selected loopback IP 127.1.1.1) and a remote server using 
+192.168.0.101, assuming the script is running on a device
+having a server-facing interface with IP 192.168.0.123:
+
+Client: nc -u -s 127.1.1.1 -p 5554 127.0.0.1 5554
+
+Server: nc -u -l 5554
+
+See variables and explanations below for more details.
+'''
+
+import sys
+import select
+import socket
+
+# Tune this as needed so any UDP datagram can fit inside one recvfrom()
+BUFSZ = 4096
+
+# This is the IP address that faces clients; it is currently set for
+# clients that use loopback addresses such as 127.10.10.x
+CLIENT_FACING_IP = '127.0.0.1'
+
+# This is the IP address that faces servers; it is currently set
+# assuming the facing interface on the proxy has IP 192.168.0.123
+SERVER_FACING_IP = '192.168.0.123'
+
+# This is a listing of ports to remap for every client/server pair; 
+# the string names are unimportant
+UDP_PORTS = { 'navdata' : 5554, \
+              'video'   : 5555, \
+              'at'      : 5556 }
+
+# This is a mapping between client IPs and server IPs; it must be
+# one-to-one as the inverse gets computed later in the script
+IP_MAPPING = { '127.10.10.101' : '192.168.0.101', \
+               '127.10.10.102' : '192.168.0.102', \
+               '127.10.10.103' : '192.168.0.103', \
+               '127.10.10.104' : '192.168.0.104' }
+
+if __name__ == '__main__':
+    # Maps fileno's (used by select()) to the appropriate receiving
+    # and sending sockets
+    sock_mapping = {}
+    
+    # A list of all fileno's (used by select())
+    fileno_list = []
+    
+    # Create sockets (one per port, both for server-facing and client-facing)
+    for name, port in UDP_PORTS.items():
+        print "Building sockets for " + str(port) + " (" + name + ")..."
+        try:
+            client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            
+            for sock, ip in [(server_sock, SERVER_FACING_IP), \
+                             (client_sock, CLIENT_FACING_IP)]:
+                sock.bind((ip, port))
+                fileno_list.append(sock.fileno());
+                print "  Built socket for " + ip + ":" + str(port)
+        except:
+            print "Error building socket pair; exiting..."
+            sys.exit(1)
+        
+        # Add mapping between sockets
+        for sock_a, sock_b in [(client_sock, server_sock), \
+                               (server_sock, client_sock)]:
+            sock_mapping[sock_a.fileno()] = \
+                { 'port' : port, \
+                  'recv' : sock_a, \
+                  'send' : sock_b }
+        
+    # Invert IP_MAPPING so we can map both directions
+    for k, v in IP_MAPPING.items():
+        IP_MAPPING[v] = k
+    
+    # Run the proxy
+    while True:
+        # Wait for a socket to have data ready to be read
+        rready = []
+        try:
+            rready, wready, xready = select.select(fileno_list, [], [])
+        except KeyboardInterrupt:
+                print "Shutting down..."
+                break
+        except Exception:
+            print "Error during select(), continuing..."
+            continue
+        
+        # Go through list of ready-to-read sockets
+        for r in rready:
+            try:
+                # Receive the data
+                data, source = sock_mapping[r]['recv'].recvfrom(BUFSZ)
+                length = len(data)
+                src_ip, src_port = source
+                
+                # Do some sanity checks
+                if not data:
+                    raise Exception("Null datagram, skipping...")
+                if src_ip not in IP_MAPPING:
+                    raise Exception("No match for IP, skipping...")
+                
+                # Look up where this is destined and send it along
+                dst_ip = IP_MAPPING[src_ip]
+                dst_port = sock_mapping[r]['port']
+                sent = sock_mapping[r]['send'].sendto(data, (dst_ip, dst_port))
+                
+                # Final sanity check
+                if length != sent:
+                    raise Exception("Recv/Send length mismatch")
+            except Exception as ex:
+                print "  Error: " + ex.args[0]
+                continue
+
