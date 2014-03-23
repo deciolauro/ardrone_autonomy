@@ -822,8 +822,38 @@ int main(int argc, char** argv)
     // routine (distributed with ARDrone SDK 2.0 Examples) as well as
     // the ardrone_tool_main function
 
+    // read in ros params
+    ros::NodeHandle ph("~");
+
+    if (ph.hasParam("drone_ip") ) {
+	std::string droneip;
+    	ph.getParam("drone_ip", droneip);
+	drone_ip_address = (char *)droneip.c_str();
+    }
+    int portnum;
+    ph.param("ftp_port", portnum, 5551);
+    set_FTP_PORT((unsigned short)portnum);
+    ph.param("auth_port", portnum, 5552);
+    set_AUTH_PORT((unsigned short)portnum);
+    ph.param("video_recorder_port", portnum, 5553);
+    set_VIDEO_RECORDER_PORT((unsigned short)portnum);
+    ph.param("navdata_port", portnum, 5554);
+    set_NAVDATA_PORT((unsigned short)portnum);
+    ph.param("video_port", portnum, 5555);
+    set_VIDEO_PORT((unsigned short)portnum);
+    ph.param("at_port", portnum, 5556);
+    set_AT_PORT((unsigned short)portnum);
+    ph.param("raw_capture_port", portnum, 5557);
+    set_RAW_CAPTURE_PORT((unsigned short)portnum);
+    ph.param("printf_port", portnum, 5558);
+    set_PRINTF_PORT((unsigned short)portnum);
+    ph.param("control_port", portnum, 5559);
+    set_CONTROL_PORT((unsigned short)portnum);
+
+
     // Parse command line for
     // Backward compatibility with `-ip` command line argument
+    // These override the ros params
     argc--; argv++;
     while( argc && *argv[0] == '-' )
     {
