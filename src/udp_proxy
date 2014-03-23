@@ -1,5 +1,8 @@
 #!/usr/bin/env python
+import roslib; roslib.load_manifest('ardrone_autonomy')
 
+import rospy
+from ardrone_autonomy.msg import udp_proxy
 '''
 Bidirectional multi-client-server multi-port UDP proxy
 Written by Mike Clement, March 2014
@@ -33,99 +36,108 @@ import socket
 # Tune this as needed so any UDP datagram can fit inside one recvfrom()
 BUFSZ = 4096
 
-# This is the IP address that faces clients; it is currently set for
-# clients that use loopback addresses such as 127.10.10.x
-CLIENT_FACING_IP = '127.0.0.1'
+	
+# A list of all fileno's (used by select())
+socket_list = []
+opened_port_list = []
 
-# This is the IP address that faces servers; it is currently set
-# assuming the facing interface on the proxy has IP 192.168.0.123
-SERVER_FACING_IP = '192.168.0.123'
+# Maps fileno's (used by select()) to the appropriate receiving
+# and sending sockets
+sock_mapping = {}
 
-# This is a listing of ports to remap for every client/server pair; 
-# the string names are unimportant
-UDP_PORTS = { 'navdata' : 5554, \
-              'video'   : 5555, \
-              'at'      : 5556 }
 
-# This is a mapping between client IPs and server IPs; it must be
-# one-to-one as the inverse gets computed later in the script
-IP_MAPPING = { '127.10.10.101' : '192.168.0.101', \
-               '127.10.10.102' : '192.168.0.102', \
-               '127.10.10.103' : '192.168.0.103', \
-               '127.10.10.104' : '192.168.0.104' }
 
+def handle_new_mapping(msg):
+	from_ip = msg.from_ip
+	from_port = int(msg.from_port)
+	to_ip = msg.to_ip
+	to_port = int(msg.to_port)
+	
+	# Create sockets (one per port, both for server-facing and client-facing)
+	print("Building socket mapping for " + str(from_ip) + ":" + str(from_port) + " => " + str(to_ip) + ":" + str(to_port))
+	
+	if not from_port in opened_port_list:
+		try:
+			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+			sock.bind(('0.0.0.0', from_port))
+			socket_list.append(sock);
+			opened_port_list.append(from_port)
+			print "  Built socket for " + from_ip + ":" + str(from_port)
+
+		except:
+			print "Error building socket pair; exiting..."
+			sys.exit(1)
+
+
+	sock_mapping[(str(from_ip), from_port )] = (to_ip, to_port)
+		
 if __name__ == '__main__':
-    # Maps fileno's (used by select()) to the appropriate receiving
-    # and sending sockets
-    sock_mapping = {}
-    
-    # A list of all fileno's (used by select())
-    fileno_list = []
-    
-    # Create sockets (one per port, both for server-facing and client-facing)
-    for name, port in UDP_PORTS.items():
-        print "Building sockets for " + str(port) + " (" + name + ")..."
-        try:
-            client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            
-            for sock, ip in [(server_sock, SERVER_FACING_IP), \
-                             (client_sock, CLIENT_FACING_IP)]:
-                sock.bind((ip, port))
-                fileno_list.append(sock.fileno());
-                print "  Built socket for " + ip + ":" + str(port)
-        except:
-            print "Error building socket pair; exiting..."
-            sys.exit(1)
-        
-        # Add mapping between sockets
-        for sock_a, sock_b in [(client_sock, server_sock), \
-                               (server_sock, client_sock)]:
-            sock_mapping[sock_a.fileno()] = \
-                { 'port' : port, \
-                  'recv' : sock_a, \
-                  'send' : sock_b }
-        
-    # Invert IP_MAPPING so we can map both directions
-    for k, v in IP_MAPPING.items():
-        IP_MAPPING[v] = k
-    
-    # Run the proxy
-    while True:
-        # Wait for a socket to have data ready to be read
-        rready = []
-        try:
-            rready, wready, xready = select.select(fileno_list, [], [])
-        except KeyboardInterrupt:
-                print "Shutting down..."
-                break
-        except Exception:
-            print "Error during select(), continuing..."
-            continue
-        
-        # Go through list of ready-to-read sockets
-        for r in rready:
-            try:
-                # Receive the data
-                data, source = sock_mapping[r]['recv'].recvfrom(BUFSZ)
-                length = len(data)
-                src_ip, src_port = source
-                
-                # Do some sanity checks
-                if not data:
-                    raise Exception("Null datagram, skipping...")
-                if src_ip not in IP_MAPPING:
-                    raise Exception("No match for IP, skipping...")
-                
-                # Look up where this is destined and send it along
-                dst_ip = IP_MAPPING[src_ip]
-                dst_port = sock_mapping[r]['port']
-                sent = sock_mapping[r]['send'].sendto(data, (dst_ip, dst_port))
-                
-                # Final sanity check
-                if length != sent:
-                    raise Exception("Recv/Send length mismatch")
-            except Exception as ex:
-                print "  Error: " + ex.args[0]
-                continue
+	rospy.init_node('udp_proxy_node')
 
+	rospy.Subscriber("/udp_proxy", udp_proxy, handle_new_mapping)
+
+	portnum = -1
+	while True:
+		portnum += 1
+		try:
+			sending_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			sending_sock.bind(('', portnum))
+			opened_port = sending_sock.getsockname()[1]
+			
+			if opened_port <= 5550 or opened_port >= 5560:  # avoid conflicts with ardronelib
+				break
+			
+			if portnum == 0:
+				portnum = 6235
+			sending_sock.shutdown()
+			sending_sock.close()
+		except:
+			continue
+	
+	print("Opening port " + str(sending_sock.getsockname()[1]) + " for forwarding.")
+	# Run the proxy
+	while not rospy.is_shutdown():
+		# Wait for a socket to have data ready to be read
+		rready = []
+		try:
+			rready, wready, xready = select.select(socket_list, [], [], 0.1)
+		except select.error as e:
+			if e[0] == 4:  # keyboard interrupt
+				print "Shutting down..."
+				break
+				
+			print (e)
+			print "Error during select(), continuing..."
+			continue
+		
+		# Go through list of ready-to-read sockets
+		for r in rready:
+			try:
+				# Receive the data
+				data, source = r.recvfrom(BUFSZ)
+				length = len(data)
+				src_ip, src_port = source
+				recv_port = r.getsockname()[1]
+				
+				# Do some sanity checks
+				if not data:
+					raise Exception("Null datagram, skipping...")
+				if (src_ip, recv_port) not in sock_mapping:
+					raise Exception("No match for src: " + str(src_ip) + ":" + str(recv_port) + " , skipping...")
+				
+				# Look up where this is destined and send it along
+				(dst_ip, dst_port) = sock_mapping[(src_ip, recv_port)]
+				sent = sending_sock.sendto(data, (dst_ip, dst_port))
+				
+				# Final sanity check
+				if length != sent:
+					raise Exception("Recv/Send length mismatch")
+			except Exception as ex:
+				print "  Error: " + ex.args[0]
+				continue
+
+	sending_sock.close()
+	
+	for sock in socket_list:
+		sock.close()
