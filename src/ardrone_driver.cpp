@@ -3,6 +3,10 @@
 #include "video.h"
 #include <signal.h>
 #include <ardrone_tool/ardrone_tool.h>
+#include <ardrone_autonomy/udp_proxy.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // class ARDroneDriver
@@ -824,11 +828,13 @@ int main(int argc, char** argv)
 
     // read in ros params
     ros::NodeHandle ph("~");
+    ros::NodeHandle n;
 
     if (ph.hasParam("drone_ip") ) {
 	std::string droneip;
     	ph.getParam("drone_ip", droneip);
-	drone_ip_address = (char *)droneip.c_str();
+	if (droneip.length() > 0)
+		drone_ip_address = (char *)droneip.c_str();
     }
     int portnum;
     ph.param("ftp_port", portnum, 5551);
@@ -849,6 +855,7 @@ int main(int argc, char** argv)
     set_PRINTF_PORT((unsigned short)portnum);
     ph.param("control_port", portnum, 5559);
     set_CONTROL_PORT((unsigned short)portnum);
+
 
 
     // Parse command line for
@@ -911,6 +918,26 @@ int main(int argc, char** argv)
         argc--; argv++;
     }
 
+    // the udp proxy trumps the command line and rosparam port settings
+    std::string udp_proxy_path;
+    int saved_navdata_port, saved_video_port;
+
+    if (ph.hasParam("udp_proxy_path") ) {
+    	ph.getParam("udp_proxy_path", udp_proxy_path);
+	if (udp_proxy_path.length() > 0) {
+
+		saved_navdata_port = NAVDATA_PORT;
+		saved_video_port = VIDEO_PORT;
+
+		// set ardronelib udp ports to zero
+		set_NAVDATA_PORT(0);
+		set_VIDEO_PORT(0);
+	}
+    }
+
+
+
+
     // Configure wifi
     vp_com_wifi_config_t *config = (vp_com_wifi_config_t*)wifi_config();
 
@@ -962,6 +989,51 @@ int main(int argc, char** argv)
         // this will then call our sdk, which then starts the ::run() method of this file as an ardrone client thread
 
         res = ardrone_tool_init(wifi_ardrone_ip, strlen(wifi_ardrone_ip), NULL, app_name, usr_name, NULL, NULL, MAX_FLIGHT_STORING_SIZE, NULL);
+
+
+	if (udp_proxy_path.length() > 0) {
+
+		// if we're using the udp proxy, retrieve the port numbers that were opened by the ardrone_tool
+	
+
+		ros::Publisher udp_proxy_pub = n.advertise<ardrone_autonomy::udp_proxy>(udp_proxy_path, 10);
+
+		struct sockaddr_in sa;
+		unsigned int sa_len = sizeof(sa);
+		int chosen_port;
+
+		// get the navdata port used
+
+		getsockname((int)navdata_socket.priv, (struct sockaddr *)&sa, &sa_len);
+		chosen_port = ntohs(sa.sin_port);
+
+		// now setup a mapping for the port with the udp proxy
+
+		ardrone_autonomy::udp_proxy msg;
+
+		if (drone_ip_address) {
+			msg.from_ip = drone_ip_address;
+		} else {
+			msg.from_ip = config->server;
+		}
+		msg.from_port = saved_navdata_port;
+		msg.to_ip = inet_ntoa(sa.sin_addr);
+		msg.to_port = chosen_port;
+
+		udp_proxy_pub.publish(msg);
+		
+		// do the same for the video port
+
+		getsockname((int)icc_udp.socket.priv, (struct sockaddr *)&sa, &sa_len);
+		chosen_port = ntohs(sa.sin_port);
+
+		msg.from_port = saved_video_port;
+		msg.to_ip = inet_ntoa(sa.sin_addr);
+		msg.to_port = chosen_port;
+
+		udp_proxy_pub.publish(msg);
+
+	}
 
         while( SUCCEED(res) && ardrone_tool_exit() == FALSE )
         {
