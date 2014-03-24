@@ -830,8 +830,9 @@ int main(int argc, char** argv)
     ros::NodeHandle ph("~");
     ros::NodeHandle n;
 
+    std::string droneip;
+
     if (ph.hasParam("drone_ip") ) {
-	std::string droneip;
     	ph.getParam("drone_ip", droneip);
 	if (droneip.length() > 0)
 		drone_ip_address = (char *)droneip.c_str();
