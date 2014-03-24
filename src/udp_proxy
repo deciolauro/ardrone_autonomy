@@ -75,7 +75,7 @@ def handle_new_mapping(msg):
 if __name__ == '__main__':
 	rospy.init_node('udp_proxy_node')
 
-	rospy.Subscriber("/udp_proxy", udp_proxy, handle_new_mapping)
+	rospy.Subscriber("udp_proxy", udp_proxy, handle_new_mapping)
 
 	portnum = -1
 	while True:
