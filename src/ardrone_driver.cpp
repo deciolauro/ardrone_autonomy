@@ -2,10 +2,6 @@
 #include "teleop_twist.h"
 #include "video.h"
 #include <signal.h>
-#include <ardrone_tool/ardrone_tool.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // class ARDroneDriver
