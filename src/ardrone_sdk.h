@@ -41,9 +41,6 @@ extern "C" {
 #include <ardrone_tool/Video/video_stage_latency_estimation.h>
 
 extern video_decoder_config_t vec;
-
-vp_com_socket_t * get_at_socket();
-
 }
 
 #include "ardrone_driver.h"

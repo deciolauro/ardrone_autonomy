@@ -23,6 +23,7 @@ class ARDroneDriver;
 #include "NavdataMessageDefinitions.h"
 #undef NAVDATA_STRUCTS_INCLUDES
 
+
 #define _DEG2RAD 0.01745331111
 #define _RAD2DEG 57.2957184819
 
@@ -79,7 +80,6 @@ private:
     ros::Publisher navdata_pub;
     ros::Publisher imu_pub;
     ros::Publisher mag_pub;
-
 
     tf::TransformBroadcaster tf_broad;
 

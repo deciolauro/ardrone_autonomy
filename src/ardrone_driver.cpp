@@ -914,7 +914,6 @@ int main(int argc, char** argv)
         argc--; argv++;
     }
 
-
     // Configure wifi
     vp_com_wifi_config_t *config = (vp_com_wifi_config_t*)wifi_config();
 
@@ -970,7 +969,6 @@ int main(int argc, char** argv)
         while( SUCCEED(res) && ardrone_tool_exit() == FALSE )
         {
             res = ardrone_tool_update();
-
         }
         res = ardrone_tool_shutdown();
     }
