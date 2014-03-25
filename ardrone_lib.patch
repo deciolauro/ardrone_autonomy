@@ -12,10 +12,10 @@ index 0b96558..0c101a0 100644
  endif
  endif
 diff --git a/ARDroneLib/Soft/Common/config.h b/ARDroneLib/Soft/Common/config.h
-index ba83536..2a5a2a1 100644
+index ba83536..033df51 100644
 --- a/ARDroneLib/Soft/Common/config.h
 +++ b/ARDroneLib/Soft/Common/config.h
-@@ -86,16 +86,18 @@
+@@ -86,16 +86,17 @@
  
  #define WIFI_PASSKEY            "9F1C3EE11CBA230B27BF1C1B6F"
  
@@ -36,7 +36,6 @@ index ba83536..2a5a2a1 100644
 +extern unsigned short VIDEO_RECORDER_PORT;
 +extern unsigned short NAVDATA_PORT;
 +extern unsigned short VIDEO_PORT;
-+extern unsigned short VIDEO_PORT_UDP;
 +extern unsigned short AT_PORT;
 +extern unsigned short RAW_CAPTURE_PORT;
 +extern unsigned short PRINTF_PORT;
@@ -45,90 +44,53 @@ index ba83536..2a5a2a1 100644
  // Wired configuration
  
 diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/AT/ardrone_at_mutex.c b/ARDroneLib/Soft/Lib/ardrone_tool/AT/ardrone_at_mutex.c
-index 67bfdfc..6b949d6 100644
+index 67bfdfc..f96c262 100644
 --- a/ARDroneLib/Soft/Lib/ardrone_tool/AT/ardrone_at_mutex.c
 +++ b/ARDroneLib/Soft/Lib/ardrone_tool/AT/ardrone_at_mutex.c
-@@ -61,6 +61,10 @@ static AT_CODEC_FUNCTIONS_PTRS func_ptrs;
- static Write atcodec_write = NULL;
- static Read atcodec_read = NULL;
+@@ -138,8 +138,9 @@ AT_CODEC_ERROR_CODE host_open( void )
  
-+vp_com_socket_t * get_at_socket() {
-+	return & at_socket;
-+}
-+
- // Navdata
- extern float32_t nd_iphone_gaz;
- extern float32_t nd_iphone_yaw;
+   if( !init_ok )
+   {
+-    COM_CONFIG_SOCKET_AT(&at_socket, VP_COM_CLIENT, AT_PORT, wifi_ardrone_ip);
++    COM_CONFIG_SOCKET_AT(&at_socket, VP_COM_CLIENT, 0, wifi_ardrone_ip);
+     at_socket.protocol = VP_COM_UDP;
++    at_socket.remotePort = AT_PORT;
+ 
+     if(VP_FAILED(vp_com_init(COM_AT())))
+     {
 diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.c b/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.c
-index fb35ded..60faa42 100644
+index fb35ded..278a72f 100644
 --- a/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.c
 +++ b/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.c
-@@ -32,6 +32,10 @@ static Write navdata_write    = NULL;
- uint8_t navdata_buffer[NAVDATA_MAX_SIZE];
- navdata_unpacked_t navdata_unpacked;
- 
-+vp_com_socket_t * get_navdata_socket() {
-+	return & navdata_socket;
-+}
-+
- C_RESULT ardrone_navdata_client_init(void)
+@@ -36,10 +36,11 @@ C_RESULT ardrone_navdata_client_init(void)
  {
    C_RESULT res;
-diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.h b/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.h
-index f985080..ad8511a 100644
---- a/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.h
-+++ b/ARDroneLib/Soft/Lib/ardrone_tool/Navdata/ardrone_navdata_client.h
-@@ -3,6 +3,7 @@
  
- #include <VP_Os/vp_os_types.h>
- #include <VP_Api/vp_api_thread_helper.h>
-+#include <VP_Com/vp_com.h>
+-  COM_CONFIG_SOCKET_NAVDATA(&navdata_socket, VP_COM_CLIENT, NAVDATA_PORT, wifi_ardrone_ip);
++  COM_CONFIG_SOCKET_NAVDATA(&navdata_socket, VP_COM_CLIENT, 0, wifi_ardrone_ip);
+   navdata_socket.protocol = VP_COM_UDP;
+   navdata_socket.is_multicast = 0;      // disable multicast for Navdata
+   navdata_socket.multicast_base_addr = MULTICAST_BASE_ADDR;
++  navdata_socket.remotePort = NAVDATA_PORT;
  
- #include <ardrone_api.h>
- #include <ardrone_tool/Control/ardrone_navdata_control.h>
-@@ -60,4 +61,6 @@ C_RESULT ardrone_navdata_open_server(void);
- 
- PROTO_THREAD_ROUTINE( navdata_update , nomParams );
- 
-+vp_com_socket_t * get_navdata_socket();
-+
- #endif // _ARDRONE_NAVDATA_H_
+   vp_os_mutex_init(&navdata_client_mutex);
+   vp_os_cond_init(&navdata_client_condition, &navdata_client_mutex);
 diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.c b/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.c
-index 967808a..d3a849c 100644
+index 967808a..2368028 100644
 --- a/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.c
 +++ b/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.c
-@@ -43,6 +43,9 @@ static video_com_config_t* icc_tab[2];
- 
- static video_stage_tcp_config_t tcpConf;
- 
-+video_com_config_t * get_icc_udp() {
-+	return &icc_udp;
-+}
- 
- video_decoder_config_t vec;
- 
-@@ -96,7 +99,7 @@ DEFINE_THREAD_ROUTINE(video_stage, data) {
+@@ -96,7 +96,8 @@ DEFINE_THREAD_ROUTINE(video_stage, data) {
      icc_udp.com = COM_VIDEO();
      icc_udp.buffer_size = (1024*1024);
      icc_udp.protocol = VP_COM_UDP;
 -    COM_CONFIG_SOCKET_VIDEO(&icc_udp.socket, VP_COM_CLIENT, VIDEO_PORT, wifi_ardrone_ip);
-+    COM_CONFIG_SOCKET_VIDEO(&icc_udp.socket, VP_COM_CLIENT, VIDEO_PORT_UDP, wifi_ardrone_ip);
++    COM_CONFIG_SOCKET_VIDEO(&icc_udp.socket, VP_COM_CLIENT, 0, wifi_ardrone_ip);
++    icc_udp.socket.remotePort = VIDEO_PORT;
  
      icc.nb_sockets = 2;
      icc.configs = icc_tab;
-diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.h b/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.h
-index 6982995..4a95d39 100644
---- a/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.h
-+++ b/ARDroneLib/Soft/Lib/ardrone_tool/Video/video_stage.h
-@@ -63,4 +63,6 @@ void video_stage_resume_thread(void);
- uint32_t video_stage_get_num_retries(void);
- 
- 
-+video_com_config_t * get_icc_udp();
-+
- #endif // _VIDEO_STAGE_H_
 diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.c b/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.c
-index 8466d4c..9f91de9 100644
+index 8466d4c..4142c21 100644
 --- a/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.c
 +++ b/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.c
 @@ -332,11 +332,11 @@ int ardrone_tool_main(int argc, char **argv)
@@ -145,11 +107,8 @@ index 8466d4c..9f91de9 100644
    
    /* After a first analysis, the arguments are restored so they can be passed to the user-defined functions */
    argc=argc_backup;
-@@ -418,8 +418,33 @@ int ardrone_tool_main(int argc, char **argv)
-   }
- 
+@@ -420,6 +420,28 @@ int ardrone_tool_main(int argc, char **argv)
    return SUCCEED(res) ? 0 : -1;
-+ 
  }
  
 +// Set default ports for variables that replace old constants
@@ -158,7 +117,6 @@ index 8466d4c..9f91de9 100644
 +unsigned short VIDEO_RECORDER_PORT      = 5553;
 +unsigned short NAVDATA_PORT             = 5554;
 +unsigned short VIDEO_PORT               = 5555;
-+unsigned short VIDEO_PORT_UDP           = 5555;
 +unsigned short AT_PORT                  = 5556;
 +unsigned short RAW_CAPTURE_PORT         = 5557;
 +unsigned short PRINTF_PORT              = 5558;
@@ -170,7 +128,6 @@ index 8466d4c..9f91de9 100644
 +void set_VIDEO_RECORDER_PORT(uint16_t p) { VIDEO_RECORDER_PORT = p; }
 +void set_NAVDATA_PORT(uint16_t p) { NAVDATA_PORT = p; }
 +void set_VIDEO_PORT(uint16_t p) { VIDEO_PORT = p; }
-+void set_VIDEO_PORT_UDP(uint16_t p) { VIDEO_PORT_UDP = p; }
 +void set_AT_PORT(uint16_t p) { AT_PORT = p; }
 +void set_RAW_CAPTURE_PORT(uint16_t p) { RAW_CAPTURE_PORT = p; }
 +void set_PRINTF_PORT(uint16_t p) { PRINTF_PORT = p; }
@@ -180,10 +137,10 @@ index 8466d4c..9f91de9 100644
  #ifndef _WIN32
  	C_RESULT ardrone_tool_init_custom(void) { return C_OK; }
 diff --git a/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.h b/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.h
-index a081c9a..b9e4846 100644
+index a081c9a..4828d85 100644
 --- a/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.h
 +++ b/ARDroneLib/Soft/Lib/ardrone_tool/ardrone_tool.h
-@@ -66,12 +66,26 @@ C_RESULT ardrone_tool_shutdown(void);
+@@ -66,12 +66,25 @@ C_RESULT ardrone_tool_shutdown(void);
  
  void ardrone_tool_init_timers_and_mutex();
  void ardrone_tool_send_com_watchdog(void); // To send it only once
@@ -201,7 +158,6 @@ index a081c9a..b9e4846 100644
 +void set_VIDEO_RECORDER_PORT(uint16_t p);
 +void set_NAVDATA_PORT(uint16_t p);
 +void set_VIDEO_PORT(uint16_t p);
-+void set_VIDEO_PORT_UDP(uint16_t p);
 +void set_AT_PORT(uint16_t p);
 +void set_RAW_CAPTURE_PORT(uint16_t p);
 +void set_PRINTF_PORT(uint16_t p);
