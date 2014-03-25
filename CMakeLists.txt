@@ -50,7 +50,6 @@ add_message_files(
 	navdata_zimmu_3000.msg
 	vector21.msg
 	vector31.msg
-	udp_proxy.msg
 )
 
 ## Generate added messages and services with any dependencies listed here
