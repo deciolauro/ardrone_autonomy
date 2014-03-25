@@ -1,13 +1,10 @@
 <!-- This is a sample launch file, please change it based on your needs -->
 <launch>
 
- <node name="udp_proxy" pkg="ardrone_autonomy" type="udp_proxy" output="screen" />
-
   <group ns="drone0">
     <param name="tf_prefix" value="drone0"/>
     <include file="$(find ardrone_autonomy)/launch/ardrone.launch" >
       <arg name="drone_ip" value="192.168.1.10"/>
-      <arg name="udp_proxy" value="udp_proxy"/>
     </include>
   </group>
 
@@ -15,7 +12,6 @@
     <param name="tf_prefix" value="drone1"/>
     <include file="$(find ardrone_autonomy)/launch/ardrone.launch" >
       <arg name="drone_ip" value="192.168.1.11"/>
-      <arg name="udp_proxy" value="udp_proxy"/>
     </include>
   </group>
 </launch>

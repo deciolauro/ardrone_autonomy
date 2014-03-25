@@ -12,6 +12,7 @@ class ARDroneDriver;
 #include <geometry_msgs/Vector3Stamped.h>
 #include <std_srvs/Empty.h>
 #include <ardrone_autonomy/Navdata.h>
+#include <ardrone_autonomy/udp_proxy.h>
 #include "ardrone_sdk.h"
 #include <vector>
 #include <utils/ardrone_gen_ids.h>
@@ -22,7 +23,6 @@ class ARDroneDriver;
 #define NAVDATA_STRUCTS_INCLUDES
 #include "NavdataMessageDefinitions.h"
 #undef NAVDATA_STRUCTS_INCLUDES
-
 
 #define _DEG2RAD 0.01745331111
 #define _RAD2DEG 57.2957184819
@@ -57,6 +57,8 @@ public:
     void publish_video();
     void publish_navdata(navdata_unpacked_t &navdata_raw, const ros::Time &navdata_receive_time);
 
+    void publish_udp_ports(unsigned int navdata_port, unsigned int saved_navdata_port, unsigned int video_udp_port,  unsigned int saved_video_port, unsigned int at_port, unsigned int saved_at_port, std::string drone_ip); 
+
 private:
     void publish_tf();
     bool readCovParams(std::string param_name, boost::array<double, 9> &cov_array);
@@ -80,6 +82,7 @@ private:
     ros::Publisher navdata_pub;
     ros::Publisher imu_pub;
     ros::Publisher mag_pub;
+
 
     tf::TransformBroadcaster tf_broad;
 

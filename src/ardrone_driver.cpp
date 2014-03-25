@@ -3,7 +3,6 @@
 #include "video.h"
 #include <signal.h>
 #include <ardrone_tool/ardrone_tool.h>
-#include <ardrone_autonomy/udp_proxy.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -767,6 +766,7 @@ void ARDroneDriver::publish_navdata(navdata_unpacked_t &navdata_raw, const ros::
     imu_pub.publish(imu_msg);
 }
 
+
 // Load actual auto-generated code to publish full navdata
 #define NAVDATA_STRUCTS_SOURCE
 #include "NavdataMessageDefinitions.h"
@@ -828,7 +828,6 @@ int main(int argc, char** argv)
 
     // read in ros params
     ros::NodeHandle ph("~");
-    ros::NodeHandle n;
 
     std::string droneip;
 
@@ -848,6 +847,8 @@ int main(int argc, char** argv)
     set_NAVDATA_PORT((unsigned short)portnum);
     ph.param("video_port", portnum, 5555);
     set_VIDEO_PORT((unsigned short)portnum);
+    ph.param("video_port_udp", portnum, 5555);
+    set_VIDEO_PORT_UDP((unsigned short)portnum);
     ph.param("at_port", portnum, 5556);
     set_AT_PORT((unsigned short)portnum);
     ph.param("raw_capture_port", portnum, 5557);
@@ -896,6 +897,11 @@ int main(int argc, char** argv)
             set_VIDEO_PORT((unsigned short)atoi(*(argv+1)));
             argc--; argv++;
         }
+        else if ( !strcmp(*argv, "-video-port-udp") && ( argc > 1 ) ) /* 5555 */
+        {
+            set_VIDEO_PORT_UDP((unsigned short)atoi(*(argv+1)));
+            argc--; argv++;
+        }
         else if ( !strcmp(*argv, "-at-port") && ( argc > 1 ) ) /* 5556 */
         {
             set_AT_PORT((unsigned short)atoi(*(argv+1)));
@@ -919,22 +925,17 @@ int main(int argc, char** argv)
         argc--; argv++;
     }
 
-    // the udp proxy trumps the command line and rosparam port settings
-    std::string udp_proxy_path;
-    int saved_navdata_port, saved_video_port;
+    unsigned int saved_navdata_port, saved_video_port, saved_at_port;
 
-    if (ph.hasParam("udp_proxy_path") ) {
-    	ph.getParam("udp_proxy_path", udp_proxy_path);
-	if (udp_proxy_path.length() > 0) {
+    // save set ports
+    saved_navdata_port = NAVDATA_PORT;
+    saved_video_port = VIDEO_PORT_UDP;
+    saved_at_port = AT_PORT;
 
-		saved_navdata_port = NAVDATA_PORT;
-		saved_video_port = VIDEO_PORT;
-
-		// set ardronelib udp ports to zero
-		set_NAVDATA_PORT(0);
-		set_VIDEO_PORT(0);
-	}
-    }
+    // set ardronelib udp ports to zero to choose a random, available port, to support multiple drones
+    set_NAVDATA_PORT(0);
+    set_VIDEO_PORT_UDP(0);
+    set_AT_PORT(0);
 
 
 
@@ -992,53 +993,28 @@ int main(int argc, char** argv)
         res = ardrone_tool_init(wifi_ardrone_ip, strlen(wifi_ardrone_ip), NULL, app_name, usr_name, NULL, NULL, MAX_FLIGHT_STORING_SIZE, NULL);
 
 
-	if (udp_proxy_path.length() > 0) {
+	// Set the remote ports back
+	ros::Rate r(1);
 
-		// if we're using the udp proxy, retrieve the port numbers that were opened by the ardrone_tool
-	
+	r.sleep();
 
-		ros::Publisher udp_proxy_pub = n.advertise<ardrone_autonomy::udp_proxy>(udp_proxy_path, 10);
+	vp_com_socket_t * navdata_socket = get_navdata_socket();
+	navdata_socket->remotePort = saved_navdata_port;
 
-		struct sockaddr_in sa;
-		unsigned int sa_len = sizeof(sa);
-		int chosen_port;
 
-		// get the navdata port used
+	video_com_config_t * icc_udp = get_icc_udp();
 
-		getsockname((int)navdata_socket.priv, (struct sockaddr *)&sa, &sa_len);
-		chosen_port = ntohs(sa.sin_port);
+	icc_udp->socket.remotePort = saved_video_port;
 
-		// now setup a mapping for the port with the udp proxy
+	vp_com_socket_t * at_socket = get_at_socket();
 
-		ardrone_autonomy::udp_proxy msg;
+	at_socket->remotePort = saved_at_port;
 
-		if (drone_ip_address) {
-			msg.from_ip = drone_ip_address;
-		} else {
-			msg.from_ip = config->server;
-		}
-		msg.from_port = saved_navdata_port;
-		msg.to_ip = inet_ntoa(sa.sin_addr);
-		msg.to_port = chosen_port;
-
-		udp_proxy_pub.publish(msg);
-		
-		// do the same for the video port
-
-		getsockname((int)icc_udp.socket.priv, (struct sockaddr *)&sa, &sa_len);
-		chosen_port = ntohs(sa.sin_port);
-
-		msg.from_port = saved_video_port;
-		msg.to_ip = inet_ntoa(sa.sin_addr);
-		msg.to_port = chosen_port;
-
-		udp_proxy_pub.publish(msg);
-
-	}
 
         while( SUCCEED(res) && ardrone_tool_exit() == FALSE )
         {
             res = ardrone_tool_update();
+
         }
         res = ardrone_tool_shutdown();
     }
